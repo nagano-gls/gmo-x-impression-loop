@@ -29,7 +29,7 @@ from . import db
 
 _ANALYSIS_TOOL_SCHEMA: dict[str, Any] = {
     "name": "submit_monthly_analysis",
-    "description": "GMOグローバルスタジオX公式アカウントの月次投稿分析結果を送信する。",
+    "description": "GMOサムライスタジオX公式アカウントの月次投稿分析結果を送信する。",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -80,7 +80,7 @@ _ANALYSIS_TOOL_SCHEMA: dict[str, Any] = {
     },
 }
 
-_SYSTEM_PROMPT = """あなたはGMOグローバルスタジオの公式X（旧Twitter）アカウント運用を支援するSNS分析アシスタントです。
+_SYSTEM_PROMPT = """あなたはGMOサムライスタジオの公式X（旧Twitter）アカウント運用を支援するSNS分析アシスタントです。
 渡された1ヶ月分の投稿データ（本文・投稿時刻・画像有無・インプレッション・いいね・リポスト・返信・引用・リンククリック等）を分析し、
 「伸びる投稿の型・要素」と「伸びなかった投稿の型・要素」を具体的な根拠とともに抽出し、次月に採るべき具体的なアクション案を提示してください。
 
