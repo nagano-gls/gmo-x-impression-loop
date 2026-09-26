@@ -1,0 +1,74 @@
+name: Monthly Analyze & Slack Report
+
+# cron は日付の「最後」を直接指定できないため、28〜31日の毎日この時刻に起動し、
+# ジョブ内で「今日がUTCで月末日かどうか」を判定して、月末以外の日はスキップする。
+# 手動実行（workflow_dispatch）の場合はこの判定をスキップし、常に実行する
+# （テスト時に月末を待たずに動作確認できるようにするため）。
+on:
+  schedule:
+    - cron: "0 15 28-31 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monthly-analyze
+  cancel-in-progress: false
+
+jobs:
+  analyze-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check whether today is the last day of the month (UTC)
+        id: check
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          TOMORROW=$(date -u -d "$TODAY +1 day" +%Y-%m-%d)
+          TODAY_MONTH=$(date -u -d "$TODAY" +%m)
+          TOMORROW_MONTH=$(date -u -d "$TOMORROW" +%m)
+          if [ "$TODAY_MONTH" != "$TOMORROW_MONTH" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "今日(UTC $TODAY)は月末日ではないため、今回はスキップします。"
+          fi
+
+      - name: Set up Python
+        if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.check.outputs.should_run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Analyze the month with Claude
+        if: steps.check.outputs.should_run == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+        run: python -m scripts.analyze_monthly
+
+      - name: Post summary to Slack
+        if: steps.check.outputs.should_run == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python -m scripts.post_to_slack
+
+      - name: Commit report files
+        if: steps.check.outputs.should_run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/reports
+          if git diff --cached --quiet; then
+            echo "変更なし。コミットをスキップします。"
+          else
+            git commit -m "chore(reports): monthly analysis $(date -u +%Y-%m)"
+            git push
+          fi

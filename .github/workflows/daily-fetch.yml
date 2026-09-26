@@ -1,0 +1,51 @@
+name: Daily Fetch X Metrics
+
+on:
+  schedule:
+    # UTC 21:00 = JST 06:00 頃。前回取得以降の新規投稿＋既存直近件数のメトリクスを再取得する。
+    - cron: "0 21 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-fetch
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch metrics from X API
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
+          X_TARGET_USER_ID: ${{ secrets.X_TARGET_USER_ID }}
+        run: python -m scripts.fetch_metrics
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/impressions.db
+          if git diff --cached --quiet; then
+            echo "変更なし。コミットをスキップします。"
+          else
+            git commit -m "chore(data): daily metrics fetch $(date -u +%Y-%m-%d)"
+            git push
+          fi

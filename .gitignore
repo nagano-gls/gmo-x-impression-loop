@@ -1,0 +1,23 @@
+# 認証情報（絶対にコミットしない）
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# SQLite の一時ファイル（本体 data/impressions.db は追跡する）
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm

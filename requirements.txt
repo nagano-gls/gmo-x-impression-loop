@@ -1,0 +1,7 @@
+# === 日次ジョブ（フェーズ1で使用） ===
+tweepy>=4.14.0          # X API v2 クライアント（OAuth 1.0a ユーザーコンテキスト対応）
+python-dotenv>=1.0.0    # ローカル実行時に .env から環境変数を読み込む
+
+# === 月次ジョブ・Slack通知（フェーズ2以降で使用） ===
+anthropic>=0.40.0       # Claude API（月次分析）
+requests>=2.31.0        # Slack Incoming Webhook への投稿
