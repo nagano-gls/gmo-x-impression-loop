@@ -71,12 +71,13 @@ _ANALYSIS_TOOL_SCHEMA: dict[str, Any] = {
                     "required": ["action", "rationale"],
                 },
             },
-            "summary": {
-                "type": "string",
-                "description": "月全体の総括（日本語、3〜5文程度）。Slack通知の冒頭に使う。",
+            "summary_points": {
+                "type": "array",
+                "description": "月全体の総括を3〜5個の箇条書きで。各項目は1文・日本語・簡潔に。Slack通知の冒頭に箇条書きとして使う。",
+                "items": {"type": "string"},
             },
         },
-        "required": ["top_patterns", "underperforming_patterns", "next_month_actions", "summary"],
+        "required": ["top_patterns", "underperforming_patterns", "next_month_actions", "summary_points"],
     },
 }
 
@@ -89,6 +90,7 @@ _SYSTEM_PROMPT = """あなたはGMOサムライスタジオの公式X（旧Twitt
 - 抽象的な助言（「もっと魅力的な投稿を」等）ではなく、データから読み取れる具体的な型・要素を述べてください。
 - 投稿件数が少ない、または偏りがある場合はその限界も率直に述べてください。
 - すべて日本語で出力してください。
+- summary_points は長い文章ではなく、Slackでそのまま箇条書き表示する前提の短い1文ずつに分けてください。
 - 分析結果は submit_monthly_analysis ツールで送信してください。"""
 
 
@@ -184,11 +186,10 @@ def _render_markdown(year_month: str, stats: dict[str, Any], analysis: dict[str,
         "",
         "## 総括",
         "",
-        analysis["summary"],
-        "",
-        "## 伸びる投稿の型・要素",
-        "",
     ]
+    for point in analysis["summary_points"]:
+        lines.append(f"- {point}")
+    lines += ["", "## 伸びた型", ""]
     for item in analysis["top_patterns"]:
         lines += [
             f"### {item['pattern']}",
@@ -196,7 +197,7 @@ def _render_markdown(year_month: str, stats: dict[str, Any], analysis: dict[str,
             f"- 理由: {item['why_it_works']}",
             "",
         ]
-    lines += ["## 伸びなかった投稿の型・要素", ""]
+    lines += ["## 不調型", ""]
     for item in analysis["underperforming_patterns"]:
         lines += [
             f"### {item['pattern']}",
@@ -204,7 +205,7 @@ def _render_markdown(year_month: str, stats: dict[str, Any], analysis: dict[str,
             f"- 理由: {item['why_it_works']}",
             "",
         ]
-    lines += ["## 次月アクション案（人が採否を判断してください）", ""]
+    lines += ["## 次月アクション（採否は運用担当者が判断）", ""]
     for i, item in enumerate(analysis["next_month_actions"], start=1):
         lines += [
             f"{i}. **{item['action']}**",

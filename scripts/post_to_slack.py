@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,14 +44,43 @@ def _load_report(reports_dir: Path, year_month: str | None) -> tuple[str, dict[s
 
 _BULLET_LINE_LIMIT = 220  # 1行が長文化してスキャン性を落とさないよう要約側で切る
 
+# 目次に出す順番・見出し・絵文字を一箇所で定義し、各セクションの見出しと一致させる
+_TOC = [
+    ("📝", "サマリ"),
+    ("📈", "統計"),
+    ("✅", "伸びた型"),
+    ("⚠️", "不調型"),
+    ("🎯", "次月アクション"),
+]
+
 
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _bullet_block(title: str, items: list[dict[str, str]]) -> dict[str, Any]:
-    """「見出し＋箇条書き」の section block を1つ作る。根拠(evidence)は省き型と理由だけに絞る。"""
-    lines = [f"*{title}*"]
+def _summary_bullets(analysis: dict[str, Any]) -> list[str]:
+    """サマリを箇条書きのリストとして取得する。
+
+    新フォーマット（summary_points: リスト）を優先し、旧フォーマット
+    （summary: 1つの文章）しか無いレポートでも文単位で分割して表示できるようにする。
+    """
+    points = analysis.get("summary_points")
+    if isinstance(points, list) and points:
+        return [str(p).strip() for p in points if str(p).strip()]
+    text = str(analysis.get("summary", "")).strip()
+    if not text:
+        return []
+    sentences = [s.strip() for s in re.split(r"(?<=。)", text) if s.strip()]
+    return sentences
+
+
+def _heading(emoji: str, title: str) -> str:
+    return f"*{emoji} {title}*"
+
+
+def _bullet_block(emoji: str, title: str, items: list[dict[str, str]]) -> dict[str, Any]:
+    """「見出し＋空行＋箇条書き」の section block を1つ作る。根拠(evidence)は省き型と理由だけに絞る。"""
+    lines = [_heading(emoji, title), ""]
     for item in items:
         line = f"• *{item['pattern']}* — {item['why_it_works']}"
         lines.append(_truncate(line, _BULLET_LINE_LIMIT))
@@ -62,7 +92,13 @@ def _build_slack_payload(report: dict[str, Any]) -> dict[str, Any]:
     stats = report["stats"]
     analysis = report["analysis"]
 
-    action_lines = ["*🎯 次月アクション案（採否はご判断ください）*"]
+    toc_lines = ["*📑 目次*"] + [f"{emoji} {title}" for emoji, title in _TOC]
+
+    summary_lines = [_heading("📝", "サマリ"), ""]
+    for point in _summary_bullets(analysis):
+        summary_lines.append(f"• {_truncate(point, _BULLET_LINE_LIMIT)}")
+
+    action_lines = [_heading("🎯", "次月アクション"), ""]
     for i, item in enumerate(analysis["next_month_actions"], start=1):
         line = f"{i}. *{item['action']}* — {item['rationale']}"
         action_lines.append(_truncate(line, _BULLET_LINE_LIMIT))
@@ -70,11 +106,14 @@ def _build_slack_payload(report: dict[str, Any]) -> dict[str, Any]:
     blocks: list[dict[str, Any]] = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"📊 X投稿 月次分析レポート — {month}", "emoji": True},
+            "text": {"type": "plain_text", "text": f"📊 X投稿分析 — {month}", "emoji": True},
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": analysis["summary"]}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(toc_lines)}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(summary_lines)}},
         {
             "type": "section",
+            "text": {"type": "mrkdwn", "text": _heading("📈", "統計")},
             "fields": [
                 {"type": "mrkdwn", "text": f"*投稿件数*\n{stats['post_count']}"},
                 {"type": "mrkdwn", "text": f"*インプレ合計*\n{stats['impressions_total']:,}"},
@@ -83,9 +122,9 @@ def _build_slack_payload(report: dict[str, Any]) -> dict[str, Any]:
             ],
         },
         {"type": "divider"},
-        _bullet_block("✅ 伸びる投稿の型・要素", analysis["top_patterns"]),
+        _bullet_block("✅", "伸びた型", analysis["top_patterns"]),
         {"type": "divider"},
-        _bullet_block("⚠️ 伸びなかった投稿の型・要素", analysis["underperforming_patterns"]),
+        _bullet_block("⚠️", "不調型", analysis["underperforming_patterns"]),
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(action_lines)}},
         {"type": "divider"},
@@ -101,7 +140,8 @@ def _build_slack_payload(report: dict[str, Any]) -> dict[str, Any]:
     ]
 
     # 通知プレビュー等で使われるフォールバックテキスト（blocks未対応クライアント向け）
-    fallback_text = f"X投稿 月次分析レポート — {month}: {_truncate(analysis['summary'], 150)}"
+    preview = _summary_bullets(analysis)
+    fallback_text = f"X投稿分析 — {month}: {_truncate(preview[0], 150) if preview else ''}"
 
     return {"text": fallback_text, "blocks": blocks}
 
