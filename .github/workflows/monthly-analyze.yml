@@ -7,7 +7,12 @@ name: Monthly Analyze & Slack Report
 on:
   schedule:
     - cron: "0 15 28-31 * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "対象月 YYYY-MM（省略時は実行時点のUTC月。手動テスト時にデータがある月を指定するために使う）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -52,13 +57,25 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
-        run: python -m scripts.analyze_monthly
+          MONTH_INPUT: ${{ github.event.inputs.month }}
+        run: |
+          if [ -n "$MONTH_INPUT" ]; then
+            python -m scripts.analyze_monthly --month "$MONTH_INPUT"
+          else
+            python -m scripts.analyze_monthly
+          fi
 
       - name: Post summary to Slack
         if: steps.check.outputs.should_run == 'true'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: python -m scripts.post_to_slack
+          MONTH_INPUT: ${{ github.event.inputs.month }}
+        run: |
+          if [ -n "$MONTH_INPUT" ]; then
+            python -m scripts.post_to_slack --month "$MONTH_INPUT"
+          else
+            python -m scripts.post_to_slack
+          fi
 
       - name: Commit report files
         if: steps.check.outputs.should_run == 'true'
