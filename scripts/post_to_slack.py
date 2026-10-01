@@ -41,41 +41,69 @@ def _load_report(reports_dir: Path, year_month: str | None) -> tuple[str, dict[s
     return path.stem, report
 
 
+_BULLET_LINE_LIMIT = 220  # 1行が長文化してスキャン性を落とさないよう要約側で切る
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _bullet_block(title: str, items: list[dict[str, str]]) -> dict[str, Any]:
+    """「見出し＋箇条書き」の section block を1つ作る。根拠(evidence)は省き型と理由だけに絞る。"""
+    lines = [f"*{title}*"]
+    for item in items:
+        line = f"• *{item['pattern']}* — {item['why_it_works']}"
+        lines.append(_truncate(line, _BULLET_LINE_LIMIT))
+    return {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}
+
+
 def _build_slack_payload(report: dict[str, Any]) -> dict[str, Any]:
     month = report["month"]
     stats = report["stats"]
     analysis = report["analysis"]
 
-    lines = [
-        f"*📊 X投稿 月次分析レポート — {month}*",
-        "",
-        analysis["summary"],
-        "",
-        f"投稿件数: {stats['post_count']} / インプレッション合計: {stats['impressions_total']}"
-        f" / 平均: {stats['impressions_mean']} / 中央値: {stats['impressions_median']}",
-        "",
-        "*✅ 伸びる投稿の型・要素*",
-    ]
-    for item in analysis["top_patterns"]:
-        lines.append(f"• *{item['pattern']}* — {item['why_it_works']}")
-
-    lines += ["", "*⚠️ 伸びなかった投稿の型・要素*"]
-    for item in analysis["underperforming_patterns"]:
-        lines.append(f"• *{item['pattern']}* — {item['why_it_works']}")
-
-    lines += ["", "*🎯 次月アクション案（採否はご判断ください）*"]
+    action_lines = ["*🎯 次月アクション案（採否はご判断ください）*"]
     for i, item in enumerate(analysis["next_month_actions"], start=1):
-        lines.append(f"{i}. *{item['action']}* — {item['rationale']}")
+        line = f"{i}. *{item['action']}* — {item['rationale']}"
+        action_lines.append(_truncate(line, _BULLET_LINE_LIMIT))
 
-    lines += ["", "_この投稿は自動生成された分析です。自動投稿は行われません。採否は運用担当者の判断でお願いします。_"]
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"📊 X投稿 月次分析レポート — {month}", "emoji": True},
+        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": analysis["summary"]}},
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*投稿件数*\n{stats['post_count']}"},
+                {"type": "mrkdwn", "text": f"*インプレ合計*\n{stats['impressions_total']:,}"},
+                {"type": "mrkdwn", "text": f"*平均*\n{stats['impressions_mean']:,.0f}"},
+                {"type": "mrkdwn", "text": f"*中央値*\n{stats['impressions_median']:,}"},
+            ],
+        },
+        {"type": "divider"},
+        _bullet_block("✅ 伸びる投稿の型・要素", analysis["top_patterns"]),
+        {"type": "divider"},
+        _bullet_block("⚠️ 伸びなかった投稿の型・要素", analysis["underperforming_patterns"]),
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(action_lines)}},
+        {"type": "divider"},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "🤖 自動生成された分析です。自動投稿は行われません。採否は運用担当者の判断でお願いします。",
+                }
+            ],
+        },
+    ]
 
-    text = "\n".join(lines)
-    return {
-        "text": text,
-        "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn", "text": text[:2990]}},
-        ],
-    }
+    # 通知プレビュー等で使われるフォールバックテキスト（blocks未対応クライアント向け）
+    fallback_text = f"X投稿 月次分析レポート — {month}: {_truncate(analysis['summary'], 150)}"
+
+    return {"text": fallback_text, "blocks": blocks}
 
 
 def run(year_month: str | None = None) -> bool:
